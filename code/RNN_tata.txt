@@ -1,0 +1,95 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+dataset_train = pd.read_csv('D:/data/NSE-TATAGLOBAL.csv')
+dataset_train = dataset_train.sort_values(by='Date').reset_index(drop=True)
+training_set = dataset_train.iloc[:, 1:2].values
+print(dataset_train.shape)
+dataset_train.head()
+
+# 训练数据max-min归一化
+from sklearn.preprocessing import MinMaxScaler
+sc = MinMaxScaler(feature_range = (0, 1))
+training_set_scaled = sc.fit_transform(training_set)
+
+# 每条样本含60个时间步，对应下一时间步的标签值
+X_train = []
+y_train = []
+for i in range(60, 2035):
+    X_train.append(training_set_scaled[i-60:i, 0])
+    y_train.append(training_set_scaled[i, 0])
+X_train, y_train = np.array(X_train), np.array(y_train)
+
+print(X_train.shape)
+print(y_train.shape)
+
+# Reshaping
+X_train = np.reshape(X_train, (X_train.shape[0], X_train.shape[1], 1))
+print(X_train.shape)
+
+#  利用Keras创建RNN模型
+
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.layers import SimpleRNN,LSTM
+from keras.layers import Dropout
+
+
+# 初始化顺序模型
+regressor = Sequential()
+
+# 定义输入层及带5个神经元的隐藏层
+regressor.add(SimpleRNN(units = 5, input_shape = (X_train.shape[1], 1)))
+
+# 定义线性的输出层
+regressor.add(Dense(units = 1))
+
+# 模型编译：定义优化算法adam， 目标函数均方根MSE
+regressor.compile(optimizer = 'adam', loss = 'mean_squared_error')
+
+# 模型训练
+history = regressor.fit(X_train, y_train, epochs = 100, batch_size = 100, validation_split=0.1)
+
+regressor.summary()
+
+#可视化损失值
+plt.plot(history.history['loss'],c='blue')    # 蓝色线训练集损失
+plt.plot(history.history['val_loss'],c='red') # 红色线验证集损失
+plt.show()
+
+# 测试数据
+dataset_test = pd.read_csv('D:/data/tatatest.csv')
+dataset_test = dataset_test.sort_values(by='Date').reset_index(drop=True)
+
+real_stock_price = dataset_test.iloc[:, 1:2].values
+
+dataset_total = pd.concat((dataset_train['Open'], dataset_test['Open']), axis = 0)
+inputs = dataset_total[len(dataset_total) - len(dataset_test) - 60:].values
+inputs = inputs.reshape(-1,1)
+inputs = sc.transform(inputs)
+
+# 提取测试集
+X_test = []
+for i in range(60, 76):
+    X_test.append(inputs[i-60:i, 0])
+X_test = np.array(X_test)
+X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], 1))
+
+# 模型预测
+predicted_stock_price = regressor.predict(X_test)
+# 逆归一化
+predicted_stock_price = sc.inverse_transform(predicted_stock_price)
+# 模型评估
+print('预测与实际差异MSE',sum(pow((predicted_stock_price - real_stock_price),2))/predicted_stock_price.shape[0])
+print('预测与实际差异MAE',sum(abs(predicted_stock_price - real_stock_price))/predicted_stock_price.shape[0])
+
+
+# 预测与实际差异的可视化
+plt.plot(real_stock_price, color = 'red', label = 'Real TATA Stock Price')
+plt.plot(predicted_stock_price, color = 'blue', label = 'Predicted TAT Stock Price')
+plt.title('TATA Stock Price Prediction')
+plt.xlabel('samples')
+plt.ylabel('TATA Stock Price')
+plt.legend()
+plt.show()
